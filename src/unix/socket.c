@@ -175,6 +175,7 @@ closure_function(8, 1, sysreturn, unixsock_read_bh,
     sharedbuf shb;
     sysreturn rv;
 
+    thread_resume(bound(t));
     unixsock_lock(s);
     boolean disconnected = (s->sock.type == SOCK_STREAM) && !(s->peer && s->peer->data);
     boolean read_done = false;
@@ -192,7 +193,7 @@ closure_function(8, 1, sysreturn, unixsock_read_bh,
             goto out;
         }
         unixsock_unlock(s);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
     rv = 0;
     do {
@@ -236,8 +237,7 @@ out:
     unixsock_unlock(s);
     if (read_done)
         unixsock_notify_writer(s);
-    blockq_handle_completion(s->sock.rxbq, flags, bound(completion), bound(t),
-            rv);
+    apply(bound(completion), bound(t), rv);
     closure_finish();
     return rv;
 }
@@ -343,7 +343,7 @@ closure_function(7, 1, sysreturn, unixsock_write_bh,
     rv = unixsock_write_to(src, bound(sg), length, dest, s);
     if ((rv == -EAGAIN) && !(s->sock.f.flags & SOCK_NONBLOCK)) {
         unixsock_unlock(dest);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), flags);
     }
     full = queue_full(dest->data);
 out:
@@ -352,8 +352,7 @@ out:
         unixsock_notify_reader(dest);
     if (full)   /* no more space available to write */
         fdesc_notify_events(&s->sock.f);
-    blockq_handle_completion(dest->sock.txbq, flags, bound(completion), bound(t),
-            rv);
+    apply(bound(completion), bound(t), rv);
     refcount_release(&dest->refcount);
     closure_finish();
     return rv;
@@ -600,7 +599,7 @@ closure_function(3, 1, sysreturn, connect_bh,
             goto out;
         }
         unixsock_unlock(s);
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(bound(t), bqflags);
     }
     unixsock peer = unixsock_alloc(s->sock.h, s->sock.type, 0);
     if (!peer) {
@@ -686,7 +685,7 @@ closure_function(5, 1, sysreturn, accept_bh,
             rv = -EAGAIN;
             goto out;
         }
-        return BLOCKQ_BLOCK_REQUIRED;
+        return blockq_block_required(t, bqflags);
     }
     if (empty) {
         fdesc_notify_events(&s->sock.f);
